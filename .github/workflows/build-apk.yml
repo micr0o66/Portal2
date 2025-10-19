@@ -1,9 +1,11 @@
-name: Build Apks
+name: Build Debug Apks (适用于 Forked Repo)
 
 on:
+  # 允许手动触发
   workflow_dispatch:
   push:
     branches: [ master ]
+    # 忽略不必要路径，节省构建时间
     paths-ignore:
       - '**.md'
       - '**.txt'
@@ -13,16 +15,18 @@ on:
 
 jobs:
   build:
-    name: Build Portal
+    name: Build Portal (Debug Variant)
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
         with:
           submodules: recursive
           
       - name: Setup Java 21
+        # 使用特定的 Java setup Action
         uses:  gmitch215/setup-java@6d2c5e1f82f180ae79f799f0ed6e3e5efb4e664d
         with:
           distribution: jetbrains
@@ -47,26 +51,27 @@ jobs:
           key: gradle-builds-core-${{ github.sha }}
           restore-keys: gradle-builds
 
-      - name: Setup google-services.json
+      # ----------------------------------------------------
+      # 移除原有的 Setup google-services.json 步骤 (不再依赖 secret)
+      # 移除原有的 Keystore 设置步骤 (Debug 构建不需要签名 secret)
+      # ----------------------------------------------------
+          
+      - name: Build with Gradle (Debug Variant)
         run: |
-          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > app/google-services.json
-
-      - name: Build with Gradle
-        run: |
-          echo ${{ secrets.SIGN_KEYSTORE_BASE64 }} | base64 -d > keystore.jks
+          # 运行 'assembleDebug' 任务。Debug 包会自动使用 Android SDK 
+          # 的默认调试密钥进行签名，无需任何签名相关的 secrets。
           chmod +x ./gradlew
-          ./gradlew :app:assembleRelease --build-cache --parallel --warning-mode all --stacktrace
-          echo "APK_FILE_ALL=$(find app/build/outputs/apk/app/release -name '*.apk')" >> $GITHUB_ENV
-          echo "APK_FILE_ARM64=$(find app/build/outputs/apk/arm64/release -name '*.apk')" >> $GITHUB_ENV
-          echo "APK_FILE_X86_64=$(find app/build/outputs/apk/x64/release -name '*.apk')" >> $GITHUB_ENV
-        env:
-          KEYSTORE_PATH: "../keystore.jks"
-          KEYSTORE_PASSWORD: ${{ secrets.SIGN_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.SIGN_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.SIGN_KEY_PASSWORD }}
+          ./gradlew :app:assembleDebug --build-cache --parallel --warning-mode all --stacktrace
+          
+          # 查找 Debug 构建的 APK 文件，路径指向 'debug' 目录
+          echo "APK_FILE_ALL=$(find app/build/outputs/apk/app/debug -name '*.apk')" >> $GITHUB_ENV
+          echo "APK_FILE_ARM64=$(find app/build/outputs/apk/arm64/debug -name '*.apk')" >> $GITHUB_ENV
+          echo "APK_FILE_X86_64=$(find app/build/outputs/apk/x64/debug -name '*.apk')" >> $GITHUB_ENV
+        # 移除所有签名相关的环境变量
 
       - name: Set Portal Version
         run: |
+          # 提取版本名称 (会包含 -debug 后缀)
           version_name_all=$(basename -s .apk "${{ env.APK_FILE_ALL }}")
           version_name_arm64=$(basename -s .apk "${{ env.APK_FILE_ARM64 }}")
           version_name_x86_64=$(basename -s .apk "${{ env.APK_FILE_X86_64 }}")
@@ -76,7 +81,8 @@ jobs:
 
       - name: Show Artifacts SHA256
         run: |
-          echo "### Build Success :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "### Debug Build Success :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "此构建使用默认 Debug 密钥签名，适用于 Forked Repo。" >> $GITHUB_STEP_SUMMARY
           echo "|ABI|SHA256|" >> $GITHUB_STEP_SUMMARY
           echo "|:--------:|:----------|" >> $GITHUB_STEP_SUMMARY
           all=($(sha256sum "${{ env.APK_FILE_ALL }}"))
@@ -86,19 +92,19 @@ jobs:
           x86_64=($(sha256sum "${{ env.APK_FILE_X86_64 }}"))
           echo "|x86_64|$x86_64" >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload ALL APK RELEASE
+      - name: Upload ALL DEBUG APK
         uses: actions/upload-artifact@v4
         with:
           name: "${{ env.PORTAL_VERSION_ALL }}"
           path: "${{ env.APK_FILE_ALL }}"
 
-      - name: Upload ARM64 APK RELEASE
+      - name: Upload ARM64 DEBUG APK
         uses: actions/upload-artifact@v4
         with:
           name: "${{ env.PORTAL_VERSION_ARM64 }}"
           path: "${{ env.APK_FILE_ARM64 }}"
 
-      - name: Upload X86_64 APK RELEASE
+      - name: Upload X86_64 DEBUG APK
         uses: actions/upload-artifact@v4
         with:
           name: "${{ env.PORTAL_VERSION_x86_64 }}"
